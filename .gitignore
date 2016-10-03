@@ -1,0 +1,3 @@
+.idea
+docker-db-data/*
+!docker-db-data/.gitkeep
