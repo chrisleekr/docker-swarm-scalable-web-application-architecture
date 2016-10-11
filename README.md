@@ -1,10 +1,10 @@
-# Deploying scalable web application with Docker Swarm Mode and Docker Machine 
+# Docker 1.12 - Deploying Docker Services within Docker Swarm Mode and Docker Machine 
 
 This is proof-of-concept project to set up Docker Swarm in development environment with single command.
 
 This project involves:
 * Docker Machine
-* Docker Swarm 
+* Docker Swarm - Docker Built-in Orchestration
 * Local Docker Registry 
 * Docker Network 
 * Docker Service 
@@ -24,6 +24,8 @@ Note: This project is created for just practice. Not suitable for production use
     $ cd docker-swarm-scalable-web-application-architecture
     $ ./run_swarm.sh
 ```
+
+If run on windows, requires git shell <https://git-for-windows.github.io/>.
 
 After shell script is completed, you can connect instances to:
 * Visualizer UI: http://${MANAGER1_IP}:8500

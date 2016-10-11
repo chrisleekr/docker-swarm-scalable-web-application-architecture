@@ -29,19 +29,27 @@ do
 	elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
 	    # Do something under GNU/Linux platform
 	    VBoxManage sharedfolder add $machine --name docker --hostpath $(pwd) --automount
-	elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" ]; then
+	elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW64_NT" ]; then
 	    # Do something under Windows NT platform
-	    C:\Program Files\Oracle\VirtualBox\VBoxManage sharedfolder add $machine --name docker --hostpath %cd% --automount
+	    "C:\Program Files\Oracle\VirtualBox\VBoxManage.exe" sharedfolder add $machine --name docker --hostpath $(pwd) --automount
 	fi
 
     echo "==> Restart machine - $machine"
 	docker-machine start $machine
 
     echo "==> Create new folder called /docker in root folder"
-	docker-machine ssh $machine sudo mkdir -p /docker
+	docker-machine ssh $machine "sudo mkdir -p /docker"
 
     echo "==> Mount the shared folder to /docker path with read/write mode"
-	docker-machine ssh $machine sudo mount -t vboxsf -o defaults,dmode=777,fmode=666 docker /docker 
+    if [ "$(uname)" == "Darwin" ]; then
+    	docker-machine ssh $machine "sudo mount -t vboxsf -o defaults,dmode=777,fmode=666 docker /docker"
+    elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
+    	docker-machine ssh $machine "sudo mount -t vboxsf -o defaults,dmode=777,fmode=666 docker /docker"
+   	elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW64_NT" ]; then
+		docker-machine ssh $machine "sudo mount -t vboxsf docker /docker"
+	fi
+
+	docker-machine ssh $machine "ls /docker"
 
 done
 
@@ -49,14 +57,16 @@ done
 echo "############################################"
 echo "==> 2. Get lead manager host IP Address"
 echo "############################################"
-IPADDR=$(docker-machine ssh manager1 ifconfig eth1 | grep 'inet addr:' | cut -d: -f2 | awk '{print $1}')
+#IPADDR=$(docker-machine ssh manager1 ifconfig eth1 | grep 'inet addr:' | cut -d: -f3 | awk '{print $1}')
+IPADDR=$(docker-machine ip manager1)
 echo "==> Lead Manager IP Address: ${IPADDR}"
 
 
 echo "############################################"
 echo "==> 3. Initialize swarm in lead manager 1"
 echo "############################################"
-docker-machine ssh manager1 docker swarm init --advertise-addr $IPADDR
+CMD_SWARM_INIT="docker swarm init --advertise-addr ${IPADDR}:2377 --listen-addr ${IPADDR}:2377"
+docker-machine ssh manager1 "${CMD_SWARM_INIT}"
 
 echo "==> Get swarm join token for manager from lead manager 1"
 SWARM_JOIN_TOKEN=$(docker-machine ssh manager1 docker swarm join-token -q manager)
@@ -73,16 +83,16 @@ SWARM_JOIN_TOKEN=$(docker-machine ssh manager1 docker swarm join-token -q worker
 CMD_SWARM_JOIN="docker swarm join --token ${SWARM_JOIN_TOKEN} ${IPADDR}:2377"
 echo "==> Got swarm join command for worker => ${CMD_SWARM_JOIN}"
 echo "==> Run swarm join command to worker 1"
-docker-machine ssh worker1 $CMD_SWARM_JOIN
+docker-machine ssh worker1 ${CMD_SWARM_JOIN}
 echo "==> Run swarm join command to worker 2"
-docker-machine ssh worker2 $CMD_SWARM_JOIN
+docker-machine ssh worker2 ${CMD_SWARM_JOIN}
 
 
 echo "############################################"
 echo "==> 5. Run Docker Swarm Visualizer for monitoring swarm nodes"
 echo "		https://github.com/ManoMarks/docker-swarm-visualizer"
 echo "############################################"
-docker-machine ssh manager1 docker run -it -d -p 8080:8080 -e HOST=${IPADDR} -v /var/run/docker.sock:/var/run/docker.sock manomarks/visualizer
+docker-machine ssh manager1 "docker run -it -d -p 8080:8080 -e HOST=${IPADDR} -v /var/run/docker.sock:/var/run/docker.sock manomarks/visualizer"
 #echo "==> Visualizer URL: http://${IPADDR}:8080"
 
 
@@ -90,7 +100,7 @@ echo "############################################"
 echo "==> 6. Run docker registry service to manager images in swarm"
 echo "		https://hub.docker.com/_/registry/"
 echo "############################################"
-docker-machine ssh manager1 docker service create --name registry --publish 5000:5000 registry:2
+docker-machine ssh manager1 "docker service create --name registry --publish 5000:5000 registry:2"
 #docker-machine ssh manager1 curl -sS localhost:5000/v2/_catalog
 #docker-machine ssh manager1 docker pull alpine
 #docker-machine ssh manager1 docker tag alpine localhost:5000/alpine
@@ -112,18 +122,18 @@ echo "############################################"
 echo "==> 8. Create docker network 'frontend'"
 echo "      All docker services will be laucnhed under the docker network 'frontend' to provide access to each node"
 echo "############################################"
-docker-machine ssh manager1 docker network create frontend --driver overlay
+docker-machine ssh manager1 "docker network create frontend --driver overlay"
 
 echo "############################################"
 echo "==> 9. Run MySQL service in lead manager node"
 echo "      Since MySQL replication is not been implemented, launch only one MySQL service in manager only"
 echo "############################################"
 echo "==> Clean MySQL data folder"
-docker-machine ssh manager1 sudo rm -rf /docker/docker-db-data
-docker-machine ssh manager1 sudo mkdir -p /docker/docker-db-data
+docker-machine ssh manager1 "sudo rm -rf /docker/docker-db-data"
+docker-machine ssh manager1 "sudo mkdir -p /docker/docker-db-data"
 
 echo "==> Create service (single instance) for MySQL:5.7 to lead manager node"
-docker-machine ssh manager1 docker service create --name mysql \
+docker-machine ssh manager1 "docker service create --name mysql \
 	--publish 3306:3306 \
 	--network frontend \
 	--replicas 1 \
@@ -133,23 +143,23 @@ docker-machine ssh manager1 docker service create --name mysql \
 	-e MYSQL_DATABASE=docker \
 	-e MYSQL_USER=docker \
 	-e MYSQL_PASSWORD=docker \
-	mysql:5.7 
+	mysql:5.7 "
 
 echo "############################################"
 echo "==> 10. Run Apache & PHP (docker-app-php) service"
 echo "############################################"
 echo "==> Create service for docker-app-php across swarm node"
-docker-machine ssh manager1 docker service create --name web \
+docker-machine ssh manager1 "docker service create --name web \
 	--publish 80:80 \
 	--network frontend \
 	--replicas 1 \
 	--mount type=bind,src=/docker/docker-app,dst=/var/www/site,readonly=false \
-	localhost:5000/docker-app-php:latest
+	localhost:5000/docker-app-php:latest"
 echo "==> Scale up service to 4"
-docker-machine ssh manager1 docker service scale web=4
+docker-machine ssh manager1 "docker service scale web=4"
 
 echo "############################################"
 echo "==> Visualizer URL: http://${IPADDR}:8080"
-echo "==> Web: http:://${IPADDR}"
+echo "==> Web: http://${IPADDR}"
 echo "==> MySQL: tcp://${IPADDR}:3306"
 echo "############################################"
